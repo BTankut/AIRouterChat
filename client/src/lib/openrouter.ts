@@ -15,6 +15,8 @@ export async function* streamChat(
   messages: { role: string; content: string }[],
   signal?: AbortSignal
 ) {
+  const controller = new AbortController();
+
   try {
     const response = await fetch("/api/chat/stream", {
       method: "POST",
@@ -43,6 +45,11 @@ export async function* streamChat(
         const { done, value } = await reader.read();
         if (done) break;
 
+        // Handle AbortError during reading
+        if (signal?.aborted) {
+          return;
+        }
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
@@ -56,25 +63,26 @@ export async function* streamChat(
               const parsed = JSON.parse(data);
               if (parsed.content) yield parsed.content;
             } catch (e) {
-              console.error("Failed to parse chunk:", e);
+              // Silently ignore parse errors
+              continue;
             }
           }
         }
       }
     } catch (error) {
+      // If it's an AbortError, just return silently
       if (error instanceof Error && error.name === "AbortError") {
-        // Sessizce yoksay, kullanıcı arayüzünde hata gösterme
         return;
       }
-      throw error; // Diğer hataları yeniden fırlat
+      throw error;
     } finally {
-      reader.cancel(); // Stream'i temiz bir şekilde kapat
+      reader.cancel();
     }
   } catch (error) {
+    // If it's an AbortError, just return silently
     if (error instanceof Error && error.name === "AbortError") {
-      // Sessizce yoksay, kullanıcı arayüzünde hata gösterme
       return;
     }
-    throw error; // Diğer hataları yeniden fırlat
+    throw error;
   }
 }

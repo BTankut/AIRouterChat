@@ -105,27 +105,39 @@ export function ChatInterface() {
       const currentMessages = messages.data || [];
 
       let streamContent = "";
-      for await (const chunk of streamChat(
-        modelId,
-        [...currentMessages, userMessage],
-        abortController1.current.signal
-      )) {
-        if (isStopped) {
+      try {
+        for await (const chunk of streamChat(
+          modelId,
+          [...currentMessages, userMessage],
+          abortController1.current.signal
+        )) {
+          if (isStopped) {
+            if (currentAssistantMessageId.current !== null) {
+              await addMessage.mutateAsync({
+                role: "assistant",
+                content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                id: currentAssistantMessageId.current,
+                modelId,
+              });
+            }
+            break;
+          }
+          streamContent += chunk;
           if (currentAssistantMessageId.current !== null) {
             await addMessage.mutateAsync({
               role: "assistant",
-              content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+              content: streamContent,
               id: currentAssistantMessageId.current,
               modelId,
             });
           }
-          break;
         }
-        streamContent += chunk;
-        if (currentAssistantMessageId.current !== null) {
+      } catch (error: any) {
+        // Silently handle AbortError
+        if (error?.name !== "AbortError" && currentAssistantMessageId.current !== null) {
           await addMessage.mutateAsync({
             role: "assistant",
-            content: streamContent,
+            content: "Mesaj gönderimi sırasında bir hata oluştu.",
             id: currentAssistantMessageId.current,
             modelId,
           });
@@ -145,27 +157,39 @@ export function ChatInterface() {
           currentAssistantMessageId.current = initialResponse2.id;
 
           let streamContent2 = "";
-          for await (const chunk of streamChat(
-            otherModelId,
-            [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
-            abortController2.current.signal
-          )) {
-            if (isStopped) {
+          try {
+            for await (const chunk of streamChat(
+              otherModelId,
+              [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
+              abortController2.current.signal
+            )) {
+              if (isStopped) {
+                if (currentAssistantMessageId.current !== null) {
+                  await addMessage.mutateAsync({
+                    role: "assistant",
+                    content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                    id: currentAssistantMessageId.current,
+                    modelId: otherModelId,
+                  });
+                }
+                break;
+              }
+              streamContent2 += chunk;
               if (currentAssistantMessageId.current !== null) {
                 await addMessage.mutateAsync({
                   role: "assistant",
-                  content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                  content: streamContent2,
                   id: currentAssistantMessageId.current,
                   modelId: otherModelId,
                 });
               }
-              break;
             }
-            streamContent2 += chunk;
-            if (currentAssistantMessageId.current !== null) {
+          } catch (error: any) {
+            // Silently handle AbortError
+            if (error?.name !== "AbortError" && currentAssistantMessageId.current !== null) {
               await addMessage.mutateAsync({
                 role: "assistant",
-                content: streamContent2,
+                content: "Mesaj gönderimi sırasında bir hata oluştu.",
                 id: currentAssistantMessageId.current,
                 modelId: otherModelId,
               });
@@ -174,17 +198,7 @@ export function ChatInterface() {
         }
       }
     } catch (error: any) {
-      if (error?.name === "AbortError") {
-        // Eğer streaming durdurulduysa, son mesajı güncelle
-        if (currentAssistantMessageId.current !== null) {
-          await addMessage.mutateAsync({
-            role: "assistant",
-            content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
-            id: currentAssistantMessageId.current,
-            modelId,
-          });
-        }
-      } else {
+      if (error?.name !== "AbortError") {
         toast({
           title: "Error",
           description: "Failed to generate response",
