@@ -12,7 +12,7 @@ import type { Message, Settings } from "@shared/schema";
 import { StopAnimation } from "./stop-animation";
 
 export function ChatInterface() {
-  const [inputs, setInputs] = useState({ model1: "", model2: "" });
+  const [inputs, setInputs] = useState({ model1: "", model2: "", connected: "" });
   const [isStreaming, setIsStreaming] = useState(false);
   const [isStopped, setIsStopped] = useState(false);
   const abortController1 = useRef<AbortController>();
@@ -70,7 +70,136 @@ export function ChatInterface() {
     }
   }, [messages.data]);
 
-  const handleSubmit = async (modelNumber: 1 | 2) => {
+  const handleConnectedSubmit = async () => {
+    const input = inputs.connected;
+    if (!input.trim()) return;
+
+    setIsStopped(false);
+    setIsStreaming(true);
+    currentAssistantMessageId.current = null;
+
+    // Clear previous abort controllers
+    if (abortController1.current) {
+      abortController1.current.abort();
+      abortController1.current = undefined;
+    }
+    if (abortController2.current) {
+      abortController2.current.abort();
+      abortController2.current = undefined;
+    }
+
+    const model1Id = settings.data?.selectedModel;
+    const model2Id = settings.data?.secondSelectedModel;
+
+    if (!model1Id || !model2Id) {
+      toast({
+        title: "Error",
+        description: "Please select both models in settings",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Create user message
+      const userMessage = {
+        role: "user",
+        content: input,
+      };
+
+      await addMessage.mutateAsync(userMessage);
+      setInputs(prev => ({ ...prev, connected: "" }));
+
+      // Create new abort controllers
+      abortController1.current = new AbortController();
+      abortController2.current = new AbortController();
+
+      // Prepare and send messages to both models simultaneously
+      const model1Message = {
+        role: "assistant",
+        content: "",
+        modelId: model1Id,
+      };
+
+      const model2Message = {
+        role: "assistant",
+        content: "",
+        modelId: model2Id,
+      };
+
+      // Add initial empty messages for both models
+      const response1 = await addMessage.mutateAsync(model1Message);
+      const response2 = await addMessage.mutateAsync(model2Message);
+
+      // Stream responses from both models simultaneously
+      const streamPromises = [
+        streamModelResponse(model1Id, userMessage, response1.id, abortController1.current?.signal),
+        streamModelResponse(model2Id, userMessage, response2.id, abortController2.current?.signal)
+      ];
+
+      await Promise.all(streamPromises);
+
+    } catch (error) {
+      if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+        return;
+      }
+      if (error instanceof Error) {
+        toast({
+          title: "Error",
+          description: "Failed to generate response",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsStreaming(false);
+      setIsStopped(false);
+      currentAssistantMessageId.current = null;
+      abortController1.current = undefined;
+      abortController2.current = undefined;
+    }
+  };
+
+  const streamModelResponse = async (modelId: string, userMessage: any, messageId: number, signal?: AbortSignal) => {
+    try {
+      let streamContent = "";
+      const systemContext = `You are an AI assistant. Analyze the user's input and provide a thoughtful response.`;
+
+      for await (const chunk of streamChat(
+        modelId,
+        [
+          { role: "system", content: systemContext },
+          ...(messages.data || []).slice(-10),
+          userMessage
+        ],
+        signal
+      )) {
+        if (isStopped) {
+          await addMessage.mutateAsync({
+            role: "assistant",
+            content: "Mesaj gönderimi durduruldu.",
+            id: messageId,
+            modelId,
+          });
+          return;
+        }
+
+        streamContent += chunk;
+        await addMessage.mutateAsync({
+          role: "assistant",
+          content: streamContent,
+          id: messageId,
+          modelId,
+        });
+      }
+    } catch (error) {
+      if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+        return;
+      }
+      throw error;
+    }
+  };
+
+  const handleSingleSubmit = async (modelNumber: 1 | 2) => {
     const input = inputs[`model${modelNumber}`];
     if (!input.trim()) return;
 
@@ -200,7 +329,7 @@ Görevlerin:
 
               const messagesForSecondModel = [
                 { role: "system", content: otherModelContext },
-                ...currentMessages.slice(-10),
+                ...messages.data.slice(-10),
                 { role: "assistant", content: streamContent1, modelId },
                 { role: "user", content: streamContent1 }
               ];
@@ -457,12 +586,13 @@ Görevlerin:
         </ScrollArea>
       </Card>
 
-      <div className="grid grid-cols-2 gap-4">
-        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(1); }} className="flex gap-2">
+      {settings.data?.modelsConnected ? (
+        // Connected mode - single input for both models
+        <form onSubmit={(e) => { e.preventDefault(); handleConnectedSubmit(); }} className="flex gap-2">
           <Input
-            value={inputs.model1}
-            onChange={(e) => setInputs(prev => ({ ...prev, model1: e.target.value }))}
-            placeholder={`Message for ${getModelName(settings.data?.selectedModel)}`}
+            value={inputs.connected}
+            onChange={(e) => setInputs(prev => ({ ...prev, connected: e.target.value }))}
+            placeholder="Message both models..."
             disabled={isStreaming}
           />
           {isStreaming ? (
@@ -470,30 +600,51 @@ Görevlerin:
               <StopCircle className="h-4 w-4" />
             </Button>
           ) : (
-            <Button type="submit" size="icon" disabled={!inputs.model1.trim()}>
+            <Button type="submit" size="icon" disabled={!inputs.connected.trim()}>
               <Send className="h-4 w-4" />
             </Button>
           )}
         </form>
+      ) : (
+        // Single mode - separate inputs for each model
+        <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={(e) => { e.preventDefault(); handleSingleSubmit(1); }} className="flex gap-2">
+            <Input
+              value={inputs.model1}
+              onChange={(e) => setInputs(prev => ({ ...prev, model1: e.target.value }))}
+              placeholder={`Message for ${getModelName(settings.data?.selectedModel)}`}
+              disabled={isStreaming}
+            />
+            {isStreaming ? (
+              <Button type="button" variant="destructive" size="icon" onClick={handleStop}>
+                <StopCircle className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button type="submit" size="icon" disabled={!inputs.model1.trim()}>
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
+          </form>
 
-        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(2); }} className="flex gap-2">
-          <Input
-            value={inputs.model2}
-            onChange={(e) => setInputs(prev => ({ ...prev, model2: e.target.value }))}
-            placeholder={`Message for ${getModelName(settings.data?.secondSelectedModel)}`}
-            disabled={isStreaming}
-          />
-          {isStreaming ? (
-            <Button type="button" variant="destructive" size="icon" onClick={handleStop}>
-              <StopCircle className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button type="submit" size="icon" disabled={!inputs.model2.trim()}>
-              <Send className="h-4 w-4" />
-            </Button>
-          )}
-        </form>
-      </div>
+          <form onSubmit={(e) => { e.preventDefault(); handleSingleSubmit(2); }} className="flex gap-2">
+            <Input
+              value={inputs.model2}
+              onChange={(e) => setInputs(prev => ({ ...prev, model2: e.target.value }))}
+              placeholder={`Message for ${getModelName(settings.data?.secondSelectedModel)}`}
+              disabled={isStreaming}
+            />
+            {isStreaming ? (
+              <Button type="button" variant="destructive" size="icon" onClick={handleStop}>
+                <StopCircle className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button type="submit" size="icon" disabled={!inputs.model2.trim()}>
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
+          </form>
+        </div>
+      )}
     </div>
   );
 }
