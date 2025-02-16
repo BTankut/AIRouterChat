@@ -4,27 +4,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Settings as SettingsIcon, Key } from "lucide-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { fetchModels } from "@/lib/openrouter";
-import type { OpenRouterModel } from "@shared/schema";
+import type { OpenRouterModel, Settings } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 export function SettingsDialog() {
   const [open, setOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
   const { toast } = useToast();
-  
-  const settings = useQuery({
+  const queryClient = useQueryClient();
+
+  const settings = useQuery<Settings>({
     queryKey: ["/api/settings"],
   });
 
-  const models = useQuery({
-    queryKey: ["models"],
+  const models = useQuery<OpenRouterModel[]>({
+    queryKey: ["models", apiKey],
     queryFn: async () => {
-      if (!settings.data?.apiKey) return [];
-      return await fetchModels(settings.data.apiKey);
+      if (!apiKey) return [];
+      return await fetchModels(apiKey);
     },
-    enabled: !!settings.data?.apiKey,
+    enabled: !!apiKey,
   });
 
   const updateSettings = useMutation({
@@ -32,24 +35,37 @@ export function SettingsDialog() {
       await apiRequest("POST", "/api/settings", newSettings);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       toast({
         title: "Settings updated",
         description: "Your changes have been saved successfully.",
       });
       setOpen(false);
     },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to save settings. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
+
+  // Initialize form with existing settings
+  useState(() => {
+    if (settings.data) {
+      setApiKey(settings.data.apiKey);
+      setSelectedModel(settings.data.selectedModel);
+    }
+  }, [settings.data]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const apiKey = form.apiKey.value;
-    const selectedModel = form.selectedModel.value;
-    
-    if (!apiKey || !selectedModel) {
+
+    if (!apiKey) {
       toast({
         title: "Error",
-        description: "Please fill in all fields",
+        description: "Please enter your OpenRouter API key",
         variant: "destructive",
       });
       return;
@@ -74,9 +90,12 @@ export function SettingsDialog() {
             <label className="text-sm font-medium">OpenRouter API Key</label>
             <div className="relative">
               <Input
-                name="apiKey"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setSelectedModel(""); // Reset model selection when API key changes
+                }}
                 type="password"
-                defaultValue={settings.data?.apiKey}
                 placeholder="Enter your API key"
               />
               <Key className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
@@ -85,7 +104,11 @@ export function SettingsDialog() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Model</label>
-            <Select name="selectedModel" defaultValue={settings.data?.selectedModel}>
+            <Select
+              value={selectedModel}
+              onValueChange={setSelectedModel}
+              disabled={!models.data?.length}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
@@ -102,10 +125,16 @@ export function SettingsDialog() {
                 ))}
               </SelectContent>
             </Select>
+            {models.isLoading && <p className="text-sm text-gray-500">Loading models...</p>}
+            {models.isError && <p className="text-sm text-red-500">Failed to load models. Please check your API key.</p>}
           </div>
 
-          <Button type="submit" className="w-full" disabled={updateSettings.isPending}>
-            Save Changes
+          <Button 
+            type="submit" 
+            className="w-full" 
+            disabled={updateSettings.isPending || !apiKey || (!selectedModel && models.data?.length > 0)}
+          >
+            {updateSettings.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </form>
       </DialogContent>

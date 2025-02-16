@@ -4,10 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, StopCircle, Bot, User, Trash2 } from "lucide-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { streamChat } from "@/lib/openrouter";
 import { apiRequest } from "@/lib/queryClient";
+import type { Message, Settings } from "@shared/schema";
 
 export function ChatInterface() {
   const [input, setInput] = useState("");
@@ -15,12 +16,13 @@ export function ChatInterface() {
   const abortController = useRef<AbortController>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const settings = useQuery({
+  const settings = useQuery<Settings>({
     queryKey: ["/api/settings"],
   });
 
-  const messages = useQuery({
+  const messages = useQuery<Message[]>({
     queryKey: ["/api/messages"],
   });
 
@@ -84,7 +86,7 @@ export function ChatInterface() {
           content: streamContent,
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       if (error?.name !== "AbortError") {
         toast({
           title: "Error",
