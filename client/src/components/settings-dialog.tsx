@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings as SettingsIcon, Key } from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { fetchModels } from "@/lib/openrouter";
@@ -12,7 +11,6 @@ import { apiRequest } from "@/lib/queryClient";
 
 export function SettingsDialog() {
   const [open, setOpen] = useState(false);
-  const [apiKey, setApiKey] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -22,16 +20,12 @@ export function SettingsDialog() {
   });
 
   const models = useQuery<OpenRouterModel[]>({
-    queryKey: ["models", apiKey],
-    queryFn: async () => {
-      if (!apiKey) return [];
-      return await fetchModels(apiKey);
-    },
-    enabled: !!apiKey,
+    queryKey: ["models"],
+    queryFn: fetchModels,
   });
 
   const updateSettings = useMutation({
-    mutationFn: async (newSettings: { apiKey: string; selectedModel: string }) => {
+    mutationFn: async (newSettings: { selectedModel: string }) => {
       await apiRequest("POST", "/api/settings", newSettings);
     },
     onSuccess: () => {
@@ -51,27 +45,15 @@ export function SettingsDialog() {
     },
   });
 
-  // Form verilerini mevcut ayarlarla doldur
   useEffect(() => {
     if (settings.data) {
-      setApiKey(settings.data.apiKey);
       setSelectedModel(settings.data.selectedModel);
     }
   }, [settings.data]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!apiKey) {
-      toast({
-        title: "Error",
-        description: "Please enter your OpenRouter API key",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    updateSettings.mutate({ apiKey, selectedModel });
+    updateSettings.mutate({ selectedModel });
   };
 
   return (
@@ -86,22 +68,6 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">OpenRouter API Key</label>
-            <div className="relative">
-              <Input
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value);
-                  setSelectedModel(""); // API anahtarı değiştiğinde model seçimini sıfırla
-                }}
-                type="password"
-                placeholder="Enter your API key"
-              />
-              <Key className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
-            </div>
-          </div>
-
           <div className="space-y-2">
             <label className="text-sm font-medium">Model</label>
             <Select
@@ -126,13 +92,13 @@ export function SettingsDialog() {
               </SelectContent>
             </Select>
             {models.isLoading && <p className="text-sm text-gray-500">Loading models...</p>}
-            {models.isError && <p className="text-sm text-red-500">Failed to load models. Please check your API key.</p>}
+            {models.isError && <p className="text-sm text-red-500">Failed to load models.</p>}
           </div>
 
           <Button 
             type="submit" 
             className="w-full" 
-            disabled={updateSettings.isPending || !apiKey || (!selectedModel && models.data && models.data.length > 0)}
+            disabled={updateSettings.isPending || (!selectedModel && models.data && models.data.length > 0)}
           >
             {updateSettings.isPending ? "Saving..." : "Save Changes"}
           </Button>

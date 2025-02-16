@@ -4,7 +4,6 @@ import { z } from "zod";
 
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
-  apiKey: text("api_key").notNull(),
   selectedModel: text("selected_model").notNull(),
 });
 

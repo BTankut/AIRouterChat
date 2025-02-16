@@ -1,39 +1,28 @@
 import type { OpenRouterModel } from "@shared/schema";
 
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1";
-
-export async function fetchModels(apiKey: string): Promise<OpenRouterModel[]> {
-  const response = await fetch(`${OPENROUTER_API_URL}/models`, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  });
+export async function fetchModels(): Promise<OpenRouterModel[]> {
+  const response = await fetch("/api/models");
 
   if (!response.ok) {
     throw new Error("Failed to fetch models");
   }
 
-  const data = await response.json();
-  return data.data;
+  return await response.json();
 }
 
 export async function* streamChat(
-  apiKey: string,
   model: string,
   messages: { role: string; content: string }[],
   signal?: AbortSignal
 ) {
-  const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+  const response = await fetch("/api/chat/stream", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": window.location.origin,
     },
     body: JSON.stringify({
       model,
       messages,
-      stream: true,
     }),
     signal,
   });
@@ -63,8 +52,7 @@ export async function* streamChat(
 
         try {
           const parsed = JSON.parse(data);
-          const content = parsed.choices[0]?.delta?.content || "";
-          if (content) yield content;
+          if (parsed.content) yield parsed.content;
         } catch (e) {
           console.error("Failed to parse chunk:", e);
         }
