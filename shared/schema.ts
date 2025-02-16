@@ -5,7 +5,7 @@ import { z } from "zod";
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
   selectedModel: text("selected_model").notNull(),
-  secondSelectedModel: text("second_selected_model").notNull(),
+  secondSelectedModel: text("second_selected_model").notNull().default(''), // Add default empty string
   modelsConnected: boolean("models_connected").notNull().default(false),
 });
 
