@@ -60,11 +60,13 @@ export async function* streamChat(
       if (line.startsWith("data: ")) {
         const data = line.slice(6);
         if (data === "[DONE]") return;
-        
+
         try {
           const parsed = JSON.parse(data);
-          const content = parsed.choices[0]?.delta?.content;
-          if (content) yield content;
+          const content = parsed.choices[0]?.delta?.content || "";
+          // Satır atlama karakterlerini boşlukla değiştir
+          const cleanContent = content.replace(/\n/g, " ");
+          if (cleanContent) yield cleanContent;
         } catch (e) {
           console.error("Failed to parse chunk:", e);
         }
