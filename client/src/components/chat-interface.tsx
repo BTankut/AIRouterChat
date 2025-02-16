@@ -13,7 +13,8 @@ import type { Message, Settings } from "@shared/schema";
 export function ChatInterface() {
   const [inputs, setInputs] = useState({ model1: "", model2: "" });
   const [isStreaming, setIsStreaming] = useState(false);
-  const abortController = useRef<AbortController>();
+  const abortController1 = useRef<AbortController>();
+  const abortController2 = useRef<AbortController>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -87,7 +88,8 @@ export function ChatInterface() {
 
     try {
       setIsStreaming(true);
-      abortController.current = new AbortController();
+      abortController1.current = new AbortController();
+      abortController2.current = new AbortController();
 
       const assistantMessage = {
         role: "assistant",
@@ -103,7 +105,7 @@ export function ChatInterface() {
       for await (const chunk of streamChat(
         modelId,
         [...currentMessages, userMessage],
-        abortController.current.signal
+        abortController1.current.signal
       )) {
         streamContent += chunk;
         if (currentAssistantMessageId.current !== null) {
@@ -133,7 +135,7 @@ export function ChatInterface() {
           for await (const chunk of streamChat(
             otherModelId,
             [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
-            abortController.current.signal
+            abortController2.current.signal
           )) {
             streamContent2 += chunk;
             if (currentAssistantMessageId.current !== null) {
@@ -162,7 +164,8 @@ export function ChatInterface() {
   };
 
   const handleStop = () => {
-    abortController.current?.abort();
+    abortController1.current?.abort();
+    abortController2.current?.abort();
   };
 
   const toggleModelsConnection = () => {
