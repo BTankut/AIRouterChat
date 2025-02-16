@@ -109,7 +109,17 @@ export function ChatInterface() {
         [...currentMessages, userMessage],
         abortController1.current.signal
       )) {
-        if (isStopped) break;
+        if (isStopped) {
+          if (currentAssistantMessageId.current !== null) {
+            await addMessage.mutateAsync({
+              role: "assistant",
+              content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+              id: currentAssistantMessageId.current,
+              modelId,
+            });
+          }
+          break;
+        }
         streamContent += chunk;
         if (currentAssistantMessageId.current !== null) {
           await addMessage.mutateAsync({
@@ -121,10 +131,9 @@ export function ChatInterface() {
         }
       }
 
-      // If models are connected and not stopped, trigger response from the other model
-      if (settings.data?.modelsConnected && !isStopped) {
+      if (!isStopped && settings.data?.modelsConnected) {
         const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
-        if(otherModelId){
+        if (otherModelId) {
           const assistantMessage2 = {
             role: "assistant",
             content: "",
@@ -140,7 +149,17 @@ export function ChatInterface() {
             [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
             abortController2.current.signal
           )) {
-            if (isStopped) break;
+            if (isStopped) {
+              if (currentAssistantMessageId.current !== null) {
+                await addMessage.mutateAsync({
+                  role: "assistant",
+                  content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                  id: currentAssistantMessageId.current,
+                  modelId: otherModelId,
+                });
+              }
+              break;
+            }
             streamContent2 += chunk;
             if (currentAssistantMessageId.current !== null) {
               await addMessage.mutateAsync({
@@ -155,7 +174,7 @@ export function ChatInterface() {
       }
     } catch (error: any) {
       if (error?.name === "AbortError") {
-        // If streaming was aborted, update the last message to show it was stopped
+        // Eğer streaming durdurulduysa, son mesajı güncelle
         if (currentAssistantMessageId.current !== null) {
           await addMessage.mutateAsync({
             role: "assistant",
