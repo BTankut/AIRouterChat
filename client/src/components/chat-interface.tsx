@@ -97,7 +97,7 @@ export function ChatInterface() {
     4. Her yanıtında mutlaka bir soru sormak veya yorum yapmak
     5. Konuşmanın doğal akışını korumak
     6. Asla konuşmayı sonlandırmamak
-
+    
     ${settings.data?.modelsConnected
         ? `Önemli: Bu bir sürekli diyalog. 
            1. Her yanıtında karşı tarafa soru sor veya yorum yap
@@ -323,6 +323,11 @@ Görevlerin:
         }
       }
     } catch (error) {
+      // AbortError'ları sessizce yönet
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+      // Diğer hataları toast ile göster
       if (error instanceof Error && error.name !== "AbortError") {
         toast({
           title: "Error",
@@ -342,17 +347,22 @@ Görevlerin:
   const handleStop = () => {
     setIsStopped(true);
     try {
-      // Her iki modelin abort controller'ını da sonlandır
-      abortController1.current?.abort();
-      abortController2.current?.abort();
+      // Her iki modelin abort controller'ını da sessizce sonlandır
+      if (abortController1.current) {
+        abortController1.current.abort();
+        abortController1.current = undefined;
+      }
+      if (abortController2.current) {
+        abortController2.current.abort();
+        abortController2.current = undefined;
+      }
     } catch (error) {
-      console.error("Error during abort:", error);
+      // Abort sırasındaki hataları sessizce yönet
+      console.debug("Error during abort:", error);
     } finally {
       // Stop sonrası state'i temizle
       setIsStreaming(false);
       currentAssistantMessageId.current = null;
-      abortController1.current = undefined;
-      abortController2.current = undefined;
     }
   };
 

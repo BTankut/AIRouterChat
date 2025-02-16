@@ -45,8 +45,9 @@ export async function* streamChat(
         const { done, value } = await reader.read();
         if (done) break;
 
-        // Check for abort before processing chunk
+        // Signal kontrolü
         if (signal?.aborted) {
+          reader.cancel(); // Reader'ı temiz bir şekilde kapatıyoruz
           return;
         }
 
@@ -68,26 +69,26 @@ export async function* streamChat(
           }
         }
       } catch (error) {
-        // Handle AbortError silently at the lowest level
-        if (error instanceof Error && error.name === "AbortError") {
+        if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+          // Abort edildiğinde sessizce çıkıyoruz
           return;
         }
-        throw error;
+        throw error; // Diğer hataları yeniden fırlatıyoruz
       }
     }
   } catch (error) {
-    // Handle AbortError silently at the top level
-    if (error instanceof Error && error.name === "AbortError") {
+    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+      // Abort edildiğinde sessizce çıkıyoruz
       return;
     }
-    throw error;
+    throw error; // Diğer hataları yeniden fırlatıyoruz
   } finally {
-    // Always clean up the reader if it exists
+    // Her zaman reader'ı temizliyoruz
     if (reader) {
       try {
         await reader.cancel();
       } catch {
-        // Ignore any errors during cleanup
+        // Reader kapanırken oluşan hataları görmezden geliyoruz
       }
     }
   }
