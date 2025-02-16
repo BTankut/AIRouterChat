@@ -59,7 +59,7 @@ export function SettingsDialog() {
   // Format price to show cost per 1M tokens
   const formatPrice = (price: string) => {
     const pricePerMillion = parseFloat(price) * 1000000;
-    return pricePerMillion.toFixed(4);
+    return pricePerMillion.toFixed(2);
   };
 
   return (
@@ -101,9 +101,9 @@ export function SettingsDialog() {
             {models.isError && <p className="text-sm text-red-500">Failed to load models.</p>}
           </div>
 
-          <Button 
-            type="submit" 
-            className="w-full" 
+          <Button
+            type="submit"
+            className="w-full"
             disabled={updateSettings.isPending || (!selectedModel && models.data && models.data.length > 0)}
           >
             {updateSettings.isPending ? "Saving..." : "Save Changes"}
