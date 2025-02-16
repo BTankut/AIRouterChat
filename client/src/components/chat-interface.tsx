@@ -13,6 +13,7 @@ import type { Message, Settings } from "@shared/schema";
 export function ChatInterface() {
   const [inputs, setInputs] = useState({ model1: "", model2: "" });
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isStopped, setIsStopped] = useState(false);
   const abortController1 = useRef<AbortController>();
   const abortController2 = useRef<AbortController>();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -72,6 +73,7 @@ export function ChatInterface() {
     const input = inputs[`model${modelNumber}`];
     if (!input.trim()) return;
 
+    setIsStopped(false);
     const modelId = modelNumber === 1 ? settings.data?.selectedModel : settings.data?.secondSelectedModel;
     if (!modelId) {
       toast({
@@ -107,6 +109,7 @@ export function ChatInterface() {
         [...currentMessages, userMessage],
         abortController1.current.signal
       )) {
+        if (isStopped) break;
         streamContent += chunk;
         if (currentAssistantMessageId.current !== null) {
           await addMessage.mutateAsync({
@@ -118,8 +121,8 @@ export function ChatInterface() {
         }
       }
 
-      // If models are connected, trigger response from the other model
-      if (settings.data?.modelsConnected) {
+      // If models are connected and not stopped, trigger response from the other model
+      if (settings.data?.modelsConnected && !isStopped) {
         const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
         if(otherModelId){
           const assistantMessage2 = {
@@ -137,6 +140,7 @@ export function ChatInterface() {
             [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
             abortController2.current.signal
           )) {
+            if (isStopped) break;
             streamContent2 += chunk;
             if (currentAssistantMessageId.current !== null) {
               await addMessage.mutateAsync({
@@ -150,7 +154,17 @@ export function ChatInterface() {
         }
       }
     } catch (error: any) {
-      if (error?.name !== "AbortError") {
+      if (error?.name === "AbortError") {
+        // If streaming was aborted, update the last message to show it was stopped
+        if (currentAssistantMessageId.current !== null) {
+          await addMessage.mutateAsync({
+            role: "assistant",
+            content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+            id: currentAssistantMessageId.current,
+            modelId,
+          });
+        }
+      } else {
         toast({
           title: "Error",
           description: "Failed to generate response",
@@ -159,11 +173,13 @@ export function ChatInterface() {
       }
     } finally {
       setIsStreaming(false);
+      setIsStopped(false);
       currentAssistantMessageId.current = null;
     }
   };
 
   const handleStop = () => {
+    setIsStopped(true);
     abortController1.current?.abort();
     abortController2.current?.abort();
   };
