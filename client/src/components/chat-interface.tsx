@@ -87,11 +87,19 @@ export function ChatInterface() {
 
     // Modele özel rol tanımı
     const modelRole = modelNumber === 1 ? "İlk model" : "İkinci model";
-    const systemContext = `Sen ${modelRole} olarak görev yapıyorsun. ${
-      settings.data?.modelsConnected
-        ? "Diğer model ile işbirliği içinde çalışman gerekiyor. Diğer modelin yanıtlarını dikkate alarak kendi yanıtını oluştur."
-        : ""
-    }`;
+    const systemContext = `Sen ${modelRole} olarak görev yapıyorsun. 
+    Görevin:
+    1. Diğer model ile sürekli iletişim halinde olmak
+    2. Diğer modelin yanıtlarını dikkate alarak kendi yanıtını oluşturmak
+    3. Konuşmayı sürdürmek ve geliştirmek
+    4. Her zaman yanıt vermek ve diyalogu devam ettirmek
+
+    ${settings.data?.modelsConnected
+        ? `Önemli: Bu bir çift yönlü diyalog. Diğer model ile işbirliği içinde çalışman ve konuşmayı sürdürmen gerekiyor.
+           Eğer diğer model bir soru sorduysa mutlaka yanıtla.
+           Eğer bir sayı dizisi veya sıralı işlem varsa, devam ettir.
+           Eğer bir konu tartışılıyorsa, fikrini belirt ve diğer modele soru sor.`
+        : ""}`;
 
     const userMessage = { 
       role: "user", 
@@ -122,7 +130,7 @@ export function ChatInterface() {
           modelId,
           [
             { role: "system", content: systemContext },
-            ...currentMessages,
+            ...currentMessages.slice(-10), // Son 10 mesajı context olarak gönder
             userMessage
           ],
           abortController1.current.signal
@@ -149,7 +157,6 @@ export function ChatInterface() {
           }
         }
 
-        // İlk modelin yanıtını mesaj geçmişine ekleyelim
         const firstModelResponse = { role: "assistant", content: streamContent, modelId };
 
         if (!isStopped && settings.data?.modelsConnected) {
@@ -165,54 +172,88 @@ export function ChatInterface() {
             currentAssistantMessageId.current = initialResponse2.id;
 
             let streamContent2 = "";
-            try {
-              // İkinci model için context oluşturuyoruz
-              const otherModelRole = modelNumber === 1 ? "İkinci model" : "İlk model";
-              const otherModelContext = `Sen ${otherModelRole} olarak görev yapıyorsun. Diğer model şu yanıtı verdi: "${streamContent}". 
-                Bu yanıtı dikkate alarak ve bağlamı koruyarak kendi yanıtını oluştur. Eğer bir sayı dizisi veya sıralı bir işlem varsa, 
-                devam ettirmeye çalış. Eğer bir sohbet varsa, konuşmayı anlamlı şekilde sürdür.`;
+            let retryCount = 0;
+            const maxRetries = 3;
 
-              const messagesForSecondModel = [
-                { role: "system", content: otherModelContext },
-                ...currentMessages,
-                userMessage,
-                firstModelResponse,
-              ];
+            while (retryCount < maxRetries) {
+              try {
+                const otherModelRole = modelNumber === 1 ? "İkinci model" : "İlk model";
+                const otherModelContext = `Sen ${otherModelRole} olarak görev yapıyorsun. 
 
-              for await (const chunk of streamChat(
-                otherModelId,
-                messagesForSecondModel,
-                abortController2.current.signal
-              )) {
-                if (isStopped) {
+                Önceki yanıt: "${streamContent}"
+
+                Görevlerin:
+                1. Yukarıdaki yanıtı dikkatlice analiz et
+                2. Bağlamı koruyarak kendi yanıtını oluştur
+                3. Eğer bir soru varsa mutlaka yanıtla
+                4. Eğer bir sayı dizisi/sıralı işlem varsa, devam ettir
+                5. Eğer bir konu tartışılıyorsa, fikrini belirt ve karşı tarafa soru sor
+                6. Konuşmayı sürdür ve geliştir
+
+                Önemli: Bu bir diyalog. Yanıtsız bırakma ve konuşmayı devam ettir.`;
+
+                const messagesForSecondModel = [
+                  { role: "system", content: otherModelContext },
+                  ...currentMessages.slice(-10), // Son 10 mesajı context olarak gönder
+                  userMessage,
+                  firstModelResponse,
+                ];
+
+                let hasResponse = false;
+
+                for await (const chunk of streamChat(
+                  otherModelId,
+                  messagesForSecondModel,
+                  abortController2.current.signal
+                )) {
+                  if (isStopped) {
+                    if (currentAssistantMessageId.current !== null) {
+                      await addMessage.mutateAsync({
+                        role: "assistant",
+                        content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                        id: currentAssistantMessageId.current,
+                        modelId: otherModelId,
+                      });
+                    }
+                    return;
+                  }
+                  streamContent2 += chunk;
+                  hasResponse = true;
                   if (currentAssistantMessageId.current !== null) {
                     await addMessage.mutateAsync({
                       role: "assistant",
-                      content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                      content: streamContent2,
                       id: currentAssistantMessageId.current,
                       modelId: otherModelId,
                     });
                   }
-                  return;
                 }
-                streamContent2 += chunk;
-                if (currentAssistantMessageId.current !== null) {
-                  await addMessage.mutateAsync({
-                    role: "assistant",
-                    content: streamContent2,
-                    id: currentAssistantMessageId.current,
-                    modelId: otherModelId,
-                  });
+
+                if (hasResponse) break; // Başarılı yanıt aldıysak döngüden çık
+
+                retryCount++;
+                if (retryCount < maxRetries) {
+                  // Yanıt alınamadıysa biraz bekle ve tekrar dene
+                  await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+                  streamContent2 = ""; // Yeni deneme için içeriği temizle
                 }
-              }
-            } catch (error) {
-              if (error instanceof Error && error.name !== "AbortError" && currentAssistantMessageId.current !== null) {
-                await addMessage.mutateAsync({
-                  role: "assistant",
-                  content: "Mesaj gönderimi sırasında bir hata oluştu.",
-                  id: currentAssistantMessageId.current,
-                  modelId: otherModelId,
-                });
+
+              } catch (error) {
+                if (error instanceof Error && error.name !== "AbortError") {
+                  retryCount++;
+                  if (retryCount === maxRetries && currentAssistantMessageId.current !== null) {
+                    await addMessage.mutateAsync({
+                      role: "assistant",
+                      content: "Üzgünüm, yanıt oluşturulamadı. Lütfen tekrar deneyin.",
+                      id: currentAssistantMessageId.current,
+                      modelId: otherModelId,
+                    });
+                  }
+                  // Hata durumunda biraz bekle ve tekrar dene
+                  if (retryCount < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+                  }
+                }
               }
             }
           }
@@ -242,6 +283,7 @@ export function ChatInterface() {
       abortController1.current = undefined;
       abortController2.current = undefined;
     }
+
   };
 
   const handleStop = () => {
