@@ -12,6 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 export function SettingsDialog() {
   const [open, setOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
+  const [secondSelectedModel, setSecondSelectedModel] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -25,7 +26,7 @@ export function SettingsDialog() {
   });
 
   const updateSettings = useMutation({
-    mutationFn: async (newSettings: { selectedModel: string }) => {
+    mutationFn: async (newSettings: { selectedModel: string, secondSelectedModel: string }) => {
       await apiRequest("POST", "/api/settings", newSettings);
     },
     onSuccess: () => {
@@ -48,12 +49,13 @@ export function SettingsDialog() {
   useEffect(() => {
     if (settings.data) {
       setSelectedModel(settings.data.selectedModel);
+      setSecondSelectedModel(settings.data.secondSelectedModel);
     }
   }, [settings.data]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings.mutate({ selectedModel });
+    updateSettings.mutate({ selectedModel, secondSelectedModel });
   };
 
   // Format price to show cost per 1M tokens
@@ -75,14 +77,39 @@ export function SettingsDialog() {
         </DialogHeader>
         <form onSubmit={handleSave} className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Model</label>
+            <label className="text-sm font-medium">Model 1</label>
             <Select
               value={selectedModel}
               onValueChange={setSelectedModel}
               disabled={!models.data?.length}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select a model" />
+                <SelectValue placeholder="Select first model" />
+              </SelectTrigger>
+              <SelectContent>
+                {models.data?.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    <div className="flex flex-col">
+                      <span>{model.name}</span>
+                      <span className="text-xs text-gray-500">
+                        {model.context_length} tokens | ${formatPrice(model.pricing.prompt)}/1M prompt, ${formatPrice(model.pricing.completion)}/1M completion
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Model 2</label>
+            <Select
+              value={secondSelectedModel}
+              onValueChange={setSecondSelectedModel}
+              disabled={!models.data?.length}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select second model" />
               </SelectTrigger>
               <SelectContent>
                 {models.data?.map((model) => (
@@ -104,7 +131,7 @@ export function SettingsDialog() {
           <Button
             type="submit"
             className="w-full"
-            disabled={updateSettings.isPending || (!selectedModel && models.data && models.data.length > 0)}
+            disabled={updateSettings.isPending || (!selectedModel && !secondSelectedModel && models.data && models.data.length > 0)}
           >
             {updateSettings.isPending ? "Saving..." : "Save Changes"}
           </Button>
