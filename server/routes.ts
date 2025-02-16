@@ -61,10 +61,13 @@ async function* streamChat(
 
         try {
           const parsed = JSON.parse(data);
-          const content = parsed.choices[0]?.delta?.content || "";
+          // Güvenli bir şekilde content'i alıyoruz
+          const content = parsed.choices?.[0]?.delta?.content;
+          // Sadece içerik varsa yield ediyoruz
           if (content) yield content;
         } catch (e) {
-          console.error("Failed to parse chunk:", e);
+          console.error("Failed to parse chunk:", e, "Raw data:", data);
+          continue;
         }
       }
     }
@@ -99,7 +102,6 @@ export async function registerRoutes(app: Express) {
     res.json({ success: true });
   });
 
-  // Yeni API endpoints
   app.get("/api/models", async (req, res) => {
     try {
       const models = await fetchModels();
@@ -124,6 +126,7 @@ export async function registerRoutes(app: Express) {
       res.write("data: [DONE]\n\n");
       res.end();
     } catch (error: any) {
+      console.error("Stream error:", error);
       res.status(500).json({ error: error.message });
     }
   });
