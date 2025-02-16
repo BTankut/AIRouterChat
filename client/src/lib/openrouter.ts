@@ -15,7 +15,7 @@ export async function* streamChat(
   messages: { role: string; content: string }[],
   signal?: AbortSignal
 ) {
-  const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
   try {
     const response = await fetch("/api/chat/stream", {
@@ -34,18 +34,18 @@ export async function* streamChat(
       throw new Error("Failed to generate response");
     }
 
-    const reader = response.body?.getReader();
+    reader = response.body?.getReader();
     if (!reader) throw new Error("No reader available");
 
     const decoder = new TextDecoder();
     let buffer = "";
 
-    try {
-      while (true) {
+    while (true) {
+      try {
         const { done, value } = await reader.read();
         if (done) break;
 
-        // Handle AbortError during reading
+        // Check for abort before processing chunk
         if (signal?.aborted) {
           return;
         }
@@ -62,27 +62,33 @@ export async function* streamChat(
             try {
               const parsed = JSON.parse(data);
               if (parsed.content) yield parsed.content;
-            } catch (e) {
-              // Silently ignore parse errors
+            } catch {
               continue;
             }
           }
         }
+      } catch (error) {
+        // Handle AbortError silently at the lowest level
+        if (error instanceof Error && error.name === "AbortError") {
+          return;
+        }
+        throw error;
       }
-    } catch (error) {
-      // If it's an AbortError, just return silently
-      if (error instanceof Error && error.name === "AbortError") {
-        return;
-      }
-      throw error;
-    } finally {
-      reader.cancel();
     }
   } catch (error) {
-    // If it's an AbortError, just return silently
+    // Handle AbortError silently at the top level
     if (error instanceof Error && error.name === "AbortError") {
       return;
     }
     throw error;
+  } finally {
+    // Always clean up the reader if it exists
+    if (reader) {
+      try {
+        await reader.cancel();
+      } catch {
+        // Ignore any errors during cleanup
+      }
+    }
   }
 }

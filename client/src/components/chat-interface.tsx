@@ -120,7 +120,7 @@ export function ChatInterface() {
                 modelId,
               });
             }
-            break;
+            return;
           }
           streamContent += chunk;
           if (currentAssistantMessageId.current !== null) {
@@ -132,9 +132,63 @@ export function ChatInterface() {
             });
           }
         }
-      } catch (error: any) {
+
+        if (!isStopped && settings.data?.modelsConnected) {
+          const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
+          if (otherModelId) {
+            const assistantMessage2 = {
+              role: "assistant",
+              content: "",
+              modelId: otherModelId,
+            };
+
+            const initialResponse2 = await addMessage.mutateAsync(assistantMessage2);
+            currentAssistantMessageId.current = initialResponse2.id;
+
+            let streamContent2 = "";
+            try {
+              for await (const chunk of streamChat(
+                otherModelId,
+                [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
+                abortController2.current.signal
+              )) {
+                if (isStopped) {
+                  if (currentAssistantMessageId.current !== null) {
+                    await addMessage.mutateAsync({
+                      role: "assistant",
+                      content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                      id: currentAssistantMessageId.current,
+                      modelId: otherModelId,
+                    });
+                  }
+                  return;
+                }
+                streamContent2 += chunk;
+                if (currentAssistantMessageId.current !== null) {
+                  await addMessage.mutateAsync({
+                    role: "assistant",
+                    content: streamContent2,
+                    id: currentAssistantMessageId.current,
+                    modelId: otherModelId,
+                  });
+                }
+              }
+            } catch (error) {
+              // Silently handle AbortError
+              if (error instanceof Error && error.name !== "AbortError" && currentAssistantMessageId.current !== null) {
+                await addMessage.mutateAsync({
+                  role: "assistant",
+                  content: "Mesaj gönderimi sırasında bir hata oluştu.",
+                  id: currentAssistantMessageId.current,
+                  modelId: otherModelId,
+                });
+              }
+            }
+          }
+        }
+      } catch (error) {
         // Silently handle AbortError
-        if (error?.name !== "AbortError" && currentAssistantMessageId.current !== null) {
+        if (error instanceof Error && error.name !== "AbortError" && currentAssistantMessageId.current !== null) {
           await addMessage.mutateAsync({
             role: "assistant",
             content: "Mesaj gönderimi sırasında bir hata oluştu.",
@@ -143,62 +197,8 @@ export function ChatInterface() {
           });
         }
       }
-
-      if (!isStopped && settings.data?.modelsConnected) {
-        const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
-        if (otherModelId) {
-          const assistantMessage2 = {
-            role: "assistant",
-            content: "",
-            modelId: otherModelId,
-          };
-
-          const initialResponse2 = await addMessage.mutateAsync(assistantMessage2);
-          currentAssistantMessageId.current = initialResponse2.id;
-
-          let streamContent2 = "";
-          try {
-            for await (const chunk of streamChat(
-              otherModelId,
-              [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
-              abortController2.current.signal
-            )) {
-              if (isStopped) {
-                if (currentAssistantMessageId.current !== null) {
-                  await addMessage.mutateAsync({
-                    role: "assistant",
-                    content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
-                    id: currentAssistantMessageId.current,
-                    modelId: otherModelId,
-                  });
-                }
-                break;
-              }
-              streamContent2 += chunk;
-              if (currentAssistantMessageId.current !== null) {
-                await addMessage.mutateAsync({
-                  role: "assistant",
-                  content: streamContent2,
-                  id: currentAssistantMessageId.current,
-                  modelId: otherModelId,
-                });
-              }
-            }
-          } catch (error: any) {
-            // Silently handle AbortError
-            if (error?.name !== "AbortError" && currentAssistantMessageId.current !== null) {
-              await addMessage.mutateAsync({
-                role: "assistant",
-                content: "Mesaj gönderimi sırasında bir hata oluştu.",
-                id: currentAssistantMessageId.current,
-                modelId: otherModelId,
-              });
-            }
-          }
-        }
-      }
-    } catch (error: any) {
-      if (error?.name !== "AbortError") {
+    } catch (error) {
+      if (error instanceof Error && error.name !== "AbortError") {
         toast({
           title: "Error",
           description: "Failed to generate response",
@@ -209,13 +209,19 @@ export function ChatInterface() {
       setIsStreaming(false);
       setIsStopped(false);
       currentAssistantMessageId.current = null;
+      abortController1.current = undefined;
+      abortController2.current = undefined;
     }
   };
 
   const handleStop = () => {
     setIsStopped(true);
-    abortController1.current?.abort();
-    abortController2.current?.abort();
+    try {
+      abortController1.current?.abort();
+      abortController2.current?.abort();
+    } catch {
+      // Ignore any errors during abort
+    }
   };
 
   const toggleModelsConnection = () => {
@@ -283,20 +289,14 @@ export function ChatInterface() {
             {messages.data?.map((message, i) => (
               <div
                 key={i}
-                className={`flex gap-2 ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
+                className={`flex gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                {message.role === "assistant" && (
-                  <Bot className="h-6 w-6 text-blue-500" />
-                )}
+                {message.role === "assistant" && <Bot className="h-6 w-6 text-blue-500" />}
                 <div
                   className={`rounded-lg px-4 py-2 max-w-[80%] ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
+                    message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
                   }`}
-                  style={{ whiteSpace: 'pre-wrap' }}
+                  style={{ whiteSpace: "pre-wrap" }}
                 >
                   {message.role === "assistant" && message.modelId && (
                     <div className="text-xs text-muted-foreground mb-1">
@@ -305,9 +305,7 @@ export function ChatInterface() {
                   )}
                   {message.content}
                 </div>
-                {message.role === "user" && (
-                  <User className="h-6 w-6 text-primary" />
-                )}
+                {message.role === "user" && <User className="h-6 w-6 text-primary" />}
               </div>
             ))}
             {isStopped && <StopAnimation />}
@@ -324,12 +322,7 @@ export function ChatInterface() {
             disabled={isStreaming}
           />
           {isStreaming ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="icon"
-              onClick={handleStop}
-            >
+            <Button type="button" variant="destructive" size="icon" onClick={handleStop}>
               <StopCircle className="h-4 w-4" />
             </Button>
           ) : (
@@ -347,12 +340,7 @@ export function ChatInterface() {
             disabled={isStreaming}
           />
           {isStreaming ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="icon"
-              onClick={handleStop}
-            >
+            <Button type="button" variant="destructive" size="icon" onClick={handleStop}>
               <StopCircle className="h-4 w-4" />
             </Button>
           ) : (
