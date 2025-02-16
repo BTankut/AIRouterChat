@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { streamChat } from "@/lib/openrouter";
 import { apiRequest } from "@/lib/queryClient";
 import type { Message, Settings } from "@shared/schema";
+import { StopAnimation } from "./stop-animation";
 
 export function ChatInterface() {
   const [inputs, setInputs] = useState({ model1: "", model2: "" });
@@ -295,6 +296,7 @@ export function ChatInterface() {
                 )}
               </div>
             ))}
+            {isStopped && <StopAnimation />}
           </div>
         </ScrollArea>
       </Card>
