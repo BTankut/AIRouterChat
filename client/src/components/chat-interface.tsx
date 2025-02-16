@@ -59,10 +59,10 @@ export function ChatInterface() {
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim()) return;
-    if (!settings.data?.apiKey || !settings.data?.selectedModel) {
+    if (!settings.data?.selectedModel) {
       toast({
         title: "Error",
-        description: "Please configure your API key and select a model in settings",
+        description: "Please select a model in settings",
         variant: "destructive",
       });
       return;
@@ -87,7 +87,6 @@ export function ChatInterface() {
 
       let streamContent = "";
       for await (const chunk of streamChat(
-        settings.data.apiKey,
         settings.data.selectedModel,
         [...currentMessages, userMessage],
         abortController.current.signal
