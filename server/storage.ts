@@ -4,7 +4,7 @@ export interface IStorage {
   getSettings(): Promise<Settings | undefined>;
   updateSettings(settings: InsertSettings): Promise<Settings>;
   getMessages(): Promise<Message[]>;
-  addMessage(message: InsertMessage): Promise<Message>;
+  addMessage(message: InsertMessage & { id?: number }): Promise<Message>;
   clearMessages(): Promise<void>;
 }
 
@@ -26,7 +26,18 @@ export class MemStorage implements IStorage {
     return this.messages;
   }
 
-  async addMessage(message: InsertMessage): Promise<Message> {
+  async addMessage(message: InsertMessage & { id?: number }): Promise<Message> {
+    if (message.id !== undefined) {
+      // Eğer id verilmişse, mevcut mesajı güncelle
+      const index = this.messages.findIndex((m) => m.id === message.id);
+      if (index !== -1) {
+        const updatedMessage = { ...this.messages[index], ...message };
+        this.messages[index] = updatedMessage;
+        return updatedMessage;
+      }
+    }
+
+    // Yeni mesaj ekle
     const newMessage = { ...message, id: this.currentId++ };
     this.messages.push(newMessage);
     return newMessage;

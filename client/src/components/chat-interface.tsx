@@ -17,6 +17,7 @@ export function ChatInterface() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const currentAssistantMessageId = useRef<number | null>(null);
 
   const settings = useQuery<Settings>({
     queryKey: ["/api/settings"],
@@ -27,11 +28,13 @@ export function ChatInterface() {
   });
 
   const addMessage = useMutation({
-    mutationFn: async (message: { role: string; content: string }) => {
-      await apiRequest("POST", "/api/messages", {
+    mutationFn: async (message: { role: string; content: string; id?: number }) => {
+      const response = await apiRequest("POST", "/api/messages", {
         ...message,
         timestamp: new Date().toISOString(),
       });
+      const data = await response.json();
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
@@ -78,7 +81,8 @@ export function ChatInterface() {
         content: "",
       };
 
-      await addMessage.mutateAsync(assistantMessage);
+      const initialResponse = await addMessage.mutateAsync(assistantMessage);
+      currentAssistantMessageId.current = initialResponse.id;
       const currentMessages = messages.data || [];
 
       let streamContent = "";
@@ -89,11 +93,13 @@ export function ChatInterface() {
         abortController.current.signal
       )) {
         streamContent += chunk;
-        // Var olan asistan mesajını güncelle
-        await addMessage.mutateAsync({
-          role: "assistant",
-          content: streamContent,
-        });
+        if (currentAssistantMessageId.current !== null) {
+          await addMessage.mutateAsync({
+            role: "assistant",
+            content: streamContent,
+            id: currentAssistantMessageId.current
+          });
+        }
       }
     } catch (error: any) {
       if (error?.name !== "AbortError") {
@@ -105,6 +111,7 @@ export function ChatInterface() {
       }
     } finally {
       setIsStreaming(false);
+      currentAssistantMessageId.current = null;
     }
   };
 
