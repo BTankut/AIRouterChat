@@ -74,8 +74,20 @@ export function ChatInterface() {
     const input = inputs[`model${modelNumber}`];
     if (!input.trim()) return;
 
+    // Reset state
     setIsStopped(false);
     setIsStreaming(true);
+    currentAssistantMessageId.current = null;
+
+    // Clear previous abort controllers
+    if (abortController1.current) {
+      abortController1.current.abort();
+      abortController1.current = undefined;
+    }
+    if (abortController2.current) {
+      abortController2.current.abort();
+      abortController2.current = undefined;
+    }
 
     const modelId = modelNumber === 1 ? settings.data?.selectedModel : settings.data?.secondSelectedModel;
     if (!modelId) {
@@ -87,27 +99,6 @@ export function ChatInterface() {
       return;
     }
 
-    // Modele özel rol tanımı
-    const modelRole = modelNumber === 1 ? "İlk model" : "İkinci model";
-    const systemContext = `Sen ${modelRole} olarak görev yapıyorsun. 
-    Görevin:
-    1. Diğer model ile sürekli iletişim halinde olmak
-    2. Diğer modelin yanıtlarını dikkate alarak kendi yanıtını oluşturmak
-    3. Konuşmayı sürdürmek ve geliştirmek
-    4. Her yanıtında mutlaka bir soru sormak veya yorum yapmak
-    5. Konuşmanın doğal akışını korumak
-    6. Asla konuşmayı sonlandırmamak
-    
-    ${settings.data?.modelsConnected
-        ? `Önemli: Bu bir sürekli diyalog. 
-           1. Her yanıtında karşı tarafa soru sor veya yorum yap
-           2. Konuşmayı asla sonlandırma
-           3. Diğer modelin sorusunu mutlaka yanıtla
-           4. Eğer bir sayı dizisi veya sıralı işlem varsa, devam ettir
-           5. Eğer bir konu tartışılıyorsa, fikrini belirt ve tartışmayı sürdür
-           6. Her yanıt bir sonraki yanıt için zemin hazırlamalı`
-        : ""}`;
-
     const userMessage = {
       role: "user",
       content: input,
@@ -118,17 +109,13 @@ export function ChatInterface() {
       await addMessage.mutateAsync(userMessage);
       setInputs(prev => ({ ...prev, [`model${modelNumber}`]: "" }));
 
-      // Her model için yeni bir abort controller oluştur
+      // Create new abort controllers
       abortController1.current = new AbortController();
       abortController2.current = new AbortController();
 
       while (!isStopped && settings.data?.modelsConnected) {
-        // isStopped kontrolü eklendi
-        if (isStopped) {
-          return;
-        }
+        if (isStopped) break;
 
-        // İlk model yanıtı
         const assistantMessage1 = {
           role: "assistant",
           content: "",
@@ -137,15 +124,16 @@ export function ChatInterface() {
 
         const initialResponse1 = await addMessage.mutateAsync(assistantMessage1);
         currentAssistantMessageId.current = initialResponse1.id;
-        const currentMessages = messages.data || [];
 
         let streamContent1 = "";
         try {
+          const systemContext = `Sen ${modelNumber === 1 ? "İlk model" : "İkinci model"} olarak görev yapıyorsun...`;
+
           for await (const chunk of streamChat(
             modelId,
             [
               { role: "system", content: systemContext },
-              ...currentMessages.slice(-10),
+              ...(messages.data || []).slice(-10),
               userMessage
             ],
             abortController1.current?.signal
@@ -154,7 +142,7 @@ export function ChatInterface() {
               if (currentAssistantMessageId.current !== null) {
                 await addMessage.mutateAsync({
                   role: "assistant",
-                  content: "Mesaj gönderimi kullanıcı tarafından durduruldu.",
+                  content: "Mesaj gönderimi durduruldu.",
                   id: currentAssistantMessageId.current,
                   modelId,
                 });
@@ -172,6 +160,8 @@ export function ChatInterface() {
               });
             }
           }
+
+          if (isStopped) return;
 
           // İkinci model için hazırlık
           const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
@@ -283,7 +273,7 @@ Görevlerin:
               }
 
             } catch (error) {
-              if (error instanceof Error && error.name === "AbortError") {
+              if (isStopped || (error instanceof Error && error.name === "AbortError")) {
                 // Abort edildiğinde sessizce çık
                 return;
               }
@@ -310,7 +300,7 @@ Görevlerin:
           }
 
         } catch (error) {
-          if (error instanceof Error && error.name === "AbortError") {
+          if (isStopped || (error instanceof Error && error.name === "AbortError")) {
             // Abort edildiğinde sessizce çık
             return;
           }
@@ -328,11 +318,11 @@ Görevlerin:
       }
     } catch (error) {
       // AbortError'ları sessizce yönet
-      if (error instanceof Error && error.name === "AbortError") {
+      if (isStopped || (error instanceof Error && error.name === "AbortError")) {
         return;
       }
       // Diğer hataları toast ile göster
-      if (error instanceof Error && error.name !== "AbortError") {
+      if (error instanceof Error) {
         toast({
           title: "Error",
           description: "Failed to generate response",
@@ -352,8 +342,19 @@ Görevlerin:
     setIsStopped(true);
     setIsStreaming(false);
 
+    // Önce mevcut mesajı sonlandır
+    if (currentAssistantMessageId.current !== null) {
+      addMessage.mutate({
+        role: "assistant",
+        content: "Mesaj gönderimi durduruldu.",
+        id: currentAssistantMessageId.current,
+        modelId: settings.data?.selectedModel,
+      });
+      currentAssistantMessageId.current = null;
+    }
+
+    // Sonra AbortController'ları sonlandır
     try {
-      // Her iki modelin abort controller'ını hemen sonlandır
       if (abortController1.current) {
         abortController1.current.abort();
         abortController1.current = undefined;
@@ -362,19 +363,7 @@ Görevlerin:
         abortController2.current.abort();
         abortController2.current = undefined;
       }
-
-      // Mevcut mesajı sonlandır
-      if (currentAssistantMessageId.current !== null) {
-        addMessage.mutate({
-          role: "assistant",
-          content: "Mesaj gönderimi durduruldu.",
-          id: currentAssistantMessageId.current,
-          modelId: settings.data?.selectedModel, //Using selectedModel as a fallback.  Could be improved.
-        });
-      }
-      currentAssistantMessageId.current = null;
     } catch (error) {
-      // Abort sırasındaki hataları sessizce yönet
       console.debug("Error during abort:", error);
     }
   };

@@ -18,10 +18,7 @@ export async function* streamChat(
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
   try {
-    // Signal kontrolü - başlangıçta kontrol et
-    if (signal?.aborted) {
-      return;
-    }
+    if (signal?.aborted) return;
 
     const response = await fetch("/api/chat/stream", {
       method: "POST",
@@ -39,21 +36,28 @@ export async function* streamChat(
       throw new Error("Failed to generate response");
     }
 
-    reader = response.body?.getReader();
-    if (!reader) throw new Error("No reader available");
+    if (!response.body) {
+      throw new Error("No response body");
+    }
 
+    reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
     while (true) {
+      if (signal?.aborted) {
+        await reader.cancel();
+        return;
+      }
+
       try {
-        // Her adımda signal kontrolü
+        const { done, value } = await reader.read();
+
         if (signal?.aborted) {
           await reader.cancel();
           return;
         }
 
-        const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -61,6 +65,11 @@ export async function* streamChat(
         buffer = lines.pop() || "";
 
         for (const line of lines) {
+          if (signal?.aborted) {
+            await reader.cancel();
+            return;
+          }
+
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
             if (data === "[DONE]") return;
