@@ -1,10 +1,12 @@
-import { pgTable, text, serial, json } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, json, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
   selectedModel: text("selected_model").notNull(),
+  secondSelectedModel: text("second_selected_model").notNull(),
+  modelsConnected: boolean("models_connected").notNull().default(false),
 });
 
 export const insertSettingsSchema = createInsertSchema(settings);
@@ -16,6 +18,7 @@ export const messages = pgTable("messages", {
   role: text("role").notNull(),
   content: text("content").notNull(),
   timestamp: text("timestamp").notNull(),
+  modelId: text("model_id"), // Which model sent this message (null for user messages)
 });
 
 export const insertMessageSchema = createInsertSchema(messages);

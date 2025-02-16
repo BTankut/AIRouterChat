@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, StopCircle, Bot, User, Trash2 } from "lucide-react";
+import { Send, StopCircle, Bot, User, Trash2, Link, Link2Off } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { streamChat } from "@/lib/openrouter";
@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import type { Message, Settings } from "@shared/schema";
 
 export function ChatInterface() {
-  const [input, setInput] = useState("");
+  const [inputs, setInputs] = useState({ model1: "", model2: "" });
   const [isStreaming, setIsStreaming] = useState(false);
   const abortController = useRef<AbortController>();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -28,7 +28,7 @@ export function ChatInterface() {
   });
 
   const addMessage = useMutation({
-    mutationFn: async (message: { role: string; content: string; id?: number }) => {
+    mutationFn: async (message: { role: string; content: string; id?: number; modelId?: string }) => {
       const response = await apiRequest("POST", "/api/messages", {
         ...message,
         timestamp: new Date().toISOString(),
@@ -38,6 +38,17 @@ export function ChatInterface() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
+    },
+  });
+
+  const updateSettings = useMutation({
+    mutationFn: async (settings: Partial<Settings>) => {
+      const response = await apiRequest("POST", "/api/settings", settings);
+      const data = await response.json();
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
   });
 
@@ -56,21 +67,23 @@ export function ChatInterface() {
     }
   }, [messages.data]);
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
+  const handleSubmit = async (modelNumber: 1 | 2) => {
+    const input = inputs[`model${modelNumber}`];
     if (!input.trim()) return;
-    if (!settings.data?.selectedModel) {
+
+    const modelId = modelNumber === 1 ? settings.data?.selectedModel : settings.data?.secondSelectedModel;
+    if (!modelId) {
       toast({
         title: "Error",
-        description: "Please select a model in settings",
+        description: `Please select model ${modelNumber} in settings`,
         variant: "destructive",
       });
       return;
     }
 
-    const userMessage = { role: "user", content: input };
+    const userMessage = { role: "user", content: input, modelId };
     await addMessage.mutateAsync(userMessage);
-    setInput("");
+    setInputs(prev => ({ ...prev, [`model${modelNumber}`]: "" }));
 
     try {
       setIsStreaming(true);
@@ -79,6 +92,7 @@ export function ChatInterface() {
       const assistantMessage = {
         role: "assistant",
         content: "",
+        modelId,
       };
 
       const initialResponse = await addMessage.mutateAsync(assistantMessage);
@@ -87,7 +101,7 @@ export function ChatInterface() {
 
       let streamContent = "";
       for await (const chunk of streamChat(
-        settings.data.selectedModel,
+        modelId,
         [...currentMessages, userMessage],
         abortController.current.signal
       )) {
@@ -96,8 +110,41 @@ export function ChatInterface() {
           await addMessage.mutateAsync({
             role: "assistant",
             content: streamContent,
-            id: currentAssistantMessageId.current
+            id: currentAssistantMessageId.current,
+            modelId,
           });
+        }
+      }
+
+      // If models are connected, trigger response from the other model
+      if (settings.data?.modelsConnected) {
+        const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
+        if(otherModelId){
+          const assistantMessage2 = {
+            role: "assistant",
+            content: "",
+            modelId: otherModelId,
+          };
+
+          const initialResponse2 = await addMessage.mutateAsync(assistantMessage2);
+          currentAssistantMessageId.current = initialResponse2.id;
+
+          let streamContent2 = "";
+          for await (const chunk of streamChat(
+            otherModelId,
+            [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
+            abortController.current.signal
+          )) {
+            streamContent2 += chunk;
+            if (currentAssistantMessageId.current !== null) {
+              await addMessage.mutateAsync({
+                role: "assistant",
+                content: streamContent2,
+                id: currentAssistantMessageId.current,
+                modelId: otherModelId,
+              });
+            }
+          }
         }
       }
     } catch (error: any) {
@@ -118,14 +165,54 @@ export function ChatInterface() {
     abortController.current?.abort();
   };
 
+  const toggleModelsConnection = () => {
+    if (settings.data) {
+      updateSettings.mutate({
+        ...settings.data,
+        modelsConnected: !settings.data.modelsConnected,
+      });
+    }
+  };
+
+  const getModelName = (modelId?: string) => {
+    if (!modelId) return "";
+    return modelId.split("/").pop()?.split("-")[0] || modelId;
+  };
+
   return (
     <div className="flex flex-col h-full max-w-4xl mx-auto p-4 gap-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="h-5 w-5" />
-          <span className="font-medium">
-            Current Model: {settings.data?.selectedModel || "Not Selected"}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Bot className="h-5 w-5" />
+            <span className="font-medium">
+              Model 1: {getModelName(settings.data?.selectedModel) || "Not Selected"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Bot className="h-5 w-5" />
+            <span className="font-medium">
+              Model 2: {getModelName(settings.data?.secondSelectedModel) || "Not Selected"}
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleModelsConnection}
+            className="gap-2"
+          >
+            {settings.data?.modelsConnected ? (
+              <>
+                <Link2Off className="h-4 w-4" />
+                Disconnect Models
+              </>
+            ) : (
+              <>
+                <Link className="h-4 w-4" />
+                Connect Models
+              </>
+            )}
+          </Button>
         </div>
         <Button
           variant="ghost"
@@ -158,6 +245,11 @@ export function ChatInterface() {
                   }`}
                   style={{ whiteSpace: 'pre-wrap' }}
                 >
+                  {message.role === "assistant" && message.modelId && (
+                    <div className="text-xs text-muted-foreground mb-1">
+                      {getModelName(message.modelId)}
+                    </div>
+                  )}
                   {message.content}
                 </div>
                 {message.role === "user" && (
@@ -169,28 +261,53 @@ export function ChatInterface() {
         </ScrollArea>
       </Card>
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your message..."
-          disabled={isStreaming}
-        />
-        {isStreaming ? (
-          <Button
-            type="button"
-            variant="destructive"
-            size="icon"
-            onClick={handleStop}
-          >
-            <StopCircle className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button type="submit" size="icon" disabled={!input.trim()}>
-            <Send className="h-4 w-4" />
-          </Button>
-        )}
-      </form>
+      <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(1); }} className="flex gap-2">
+          <Input
+            value={inputs.model1}
+            onChange={(e) => setInputs(prev => ({ ...prev, model1: e.target.value }))}
+            placeholder={`Message for ${getModelName(settings.data?.selectedModel)}`}
+            disabled={isStreaming}
+          />
+          {isStreaming ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="icon"
+              onClick={handleStop}
+            >
+              <StopCircle className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button type="submit" size="icon" disabled={!inputs.model1.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
+        </form>
+
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(2); }} className="flex gap-2">
+          <Input
+            value={inputs.model2}
+            onChange={(e) => setInputs(prev => ({ ...prev, model2: e.target.value }))}
+            placeholder={`Message for ${getModelName(settings.data?.secondSelectedModel)}`}
+            disabled={isStreaming}
+          />
+          {isStreaming ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="icon"
+              onClick={handleStop}
+            >
+              <StopCircle className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button type="submit" size="icon" disabled={!inputs.model2.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
+        </form>
+      </div>
     </div>
   );
 }
