@@ -56,6 +56,12 @@ export function SettingsDialog() {
     updateSettings.mutate({ selectedModel });
   };
 
+  // Format price to show cost per 1M tokens
+  const formatPrice = (price: string) => {
+    const pricePerMillion = parseFloat(price) * 1000000;
+    return pricePerMillion.toFixed(4);
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -84,7 +90,7 @@ export function SettingsDialog() {
                     <div className="flex flex-col">
                       <span>{model.name}</span>
                       <span className="text-xs text-gray-500">
-                        {model.context_length} tokens | ${model.pricing.prompt}/1k prompt, ${model.pricing.completion}/1k completion
+                        {model.context_length} tokens | ${formatPrice(model.pricing.prompt)}/1M prompt, ${formatPrice(model.pricing.completion)}/1M completion
                       </span>
                     </div>
                   </SelectItem>
