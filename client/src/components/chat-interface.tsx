@@ -97,6 +97,7 @@ export function ChatInterface() {
         description: "Please select both models in settings",
         variant: "destructive",
       });
+      setIsStreaming(false);
       return;
     }
 
@@ -114,31 +115,127 @@ export function ChatInterface() {
       abortController1.current = new AbortController();
       abortController2.current = new AbortController();
 
-      // Prepare and send messages to both models simultaneously
-      const model1Message = {
-        role: "assistant",
-        content: "",
-        modelId: model1Id,
-      };
+      while (!isStopped) {
+        // Model 1'in yanıtı
+        const model1Message = {
+          role: "assistant",
+          content: "",
+          modelId: model1Id,
+        };
 
-      const model2Message = {
-        role: "assistant",
-        content: "",
-        modelId: model2Id,
-      };
+        const response1 = await addMessage.mutateAsync(model1Message);
+        currentAssistantMessageId.current = response1.id;
 
-      // Add initial empty messages for both models
-      const response1 = await addMessage.mutateAsync(model1Message);
-      const response2 = await addMessage.mutateAsync(model2Message);
+        let model1Content = "";
+        try {
+          const systemContext1 = `Sen Model 1 olarak görev yapıyorsun. Kullanıcı sorusunu düşünerek detaylı bir yanıt ver.`;
 
-      // Stream responses from both models simultaneously
-      const streamPromises = [
-        streamModelResponse(model1Id, userMessage, response1.id, abortController1.current?.signal),
-        streamModelResponse(model2Id, userMessage, response2.id, abortController2.current?.signal)
-      ];
+          for await (const chunk of streamChat(
+            model1Id,
+            [
+              { role: "system", content: systemContext1 },
+              ...(messages.data || []).slice(-10),
+              userMessage
+            ],
+            abortController1.current?.signal
+          )) {
+            if (isStopped) {
+              await addMessage.mutateAsync({
+                role: "assistant",
+                content: "Mesaj gönderimi durduruldu.",
+                id: currentAssistantMessageId.current,
+                modelId: model1Id,
+              });
+              return;
+            }
 
-      await Promise.all(streamPromises);
+            model1Content += chunk;
+            await addMessage.mutateAsync({
+              role: "assistant",
+              content: model1Content,
+              id: currentAssistantMessageId.current,
+              modelId: model1Id,
+            });
+          }
 
+          if (isStopped) return;
+
+          // Model 2'nin yanıtı
+          const model2Message = {
+            role: "assistant",
+            content: "",
+            modelId: model2Id,
+          };
+
+          const response2 = await addMessage.mutateAsync(model2Message);
+          currentAssistantMessageId.current = response2.id;
+
+          let model2Content = "";
+          try {
+            const systemContext2 = `Sen Model 2 olarak görev yapıyorsun. 
+Model 1'in yanıtı: "${model1Content}"
+
+Görevlerin:
+1. Yukarıdaki yanıtı dikkatlice analiz et
+2. Bağlamı koruyarak kendi yanıtını oluştur
+3. Her yanıtında mutlaka bir soru sor veya yorum yap
+4. Konuşmayı asla sonlandırma
+5. Model 1'in sorusunu mutlaka yanıtla
+6. Konuşmanın doğal akışını koru
+7. Her yanıt bir sonraki yanıt için zemin hazırlamalı`;
+
+            for await (const chunk of streamChat(
+              model2Id,
+              [
+                { role: "system", content: systemContext2 },
+                ...(messages.data || []).slice(-10),
+                { role: "assistant", content: model1Content, modelId: model1Id },
+                { role: "user", content: model1Content }
+              ],
+              abortController2.current?.signal
+            )) {
+              if (isStopped) {
+                await addMessage.mutateAsync({
+                  role: "assistant",
+                  content: "Mesaj gönderimi durduruldu.",
+                  id: currentAssistantMessageId.current,
+                  modelId: model2Id,
+                });
+                return;
+              }
+
+              model2Content += chunk;
+              await addMessage.mutateAsync({
+                role: "assistant",
+                content: model2Content,
+                id: currentAssistantMessageId.current,
+                modelId: model2Id,
+              });
+            }
+
+            if (isStopped) return;
+
+            // Yeni tur için kullanıcı mesajını güncelle
+            userMessage.content = model2Content;
+
+            // Kısa bir bekleme süresi
+            if (!isStopped) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+          } catch (error) {
+            if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+              return;
+            }
+            throw error;
+          }
+        } catch (error) {
+          if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+            return;
+          }
+          throw error;
+        }
+      }
     } catch (error) {
       if (isStopped || (error instanceof Error && error.name === "AbortError")) {
         return;
@@ -156,46 +253,6 @@ export function ChatInterface() {
       currentAssistantMessageId.current = null;
       abortController1.current = undefined;
       abortController2.current = undefined;
-    }
-  };
-
-  const streamModelResponse = async (modelId: string, userMessage: any, messageId: number, signal?: AbortSignal) => {
-    try {
-      let streamContent = "";
-      const systemContext = `You are an AI assistant. Analyze the user's input and provide a thoughtful response.`;
-
-      for await (const chunk of streamChat(
-        modelId,
-        [
-          { role: "system", content: systemContext },
-          ...(messages.data || []).slice(-10),
-          userMessage
-        ],
-        signal
-      )) {
-        if (isStopped) {
-          await addMessage.mutateAsync({
-            role: "assistant",
-            content: "Mesaj gönderimi durduruldu.",
-            id: messageId,
-            modelId,
-          });
-          return;
-        }
-
-        streamContent += chunk;
-        await addMessage.mutateAsync({
-          role: "assistant",
-          content: streamContent,
-          id: messageId,
-          modelId,
-        });
-      }
-    } catch (error) {
-      if (isStopped || (error instanceof Error && error.name === "AbortError")) {
-        return;
-      }
-      throw error;
     }
   };
 
