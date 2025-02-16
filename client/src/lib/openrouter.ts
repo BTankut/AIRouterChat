@@ -18,6 +18,11 @@ export async function* streamChat(
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
   try {
+    // Signal kontrolü - başlangıçta kontrol et
+    if (signal?.aborted) {
+      return;
+    }
+
     const response = await fetch("/api/chat/stream", {
       method: "POST",
       headers: {
@@ -42,14 +47,14 @@ export async function* streamChat(
 
     while (true) {
       try {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        // Signal kontrolü
+        // Her adımda signal kontrolü
         if (signal?.aborted) {
-          reader.cancel(); // Reader'ı temiz bir şekilde kapatıyoruz
+          await reader.cancel();
           return;
         }
+
+        const { done, value } = await reader.read();
+        if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -69,21 +74,18 @@ export async function* streamChat(
           }
         }
       } catch (error) {
-        if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
-          // Abort edildiğinde sessizce çıkıyoruz
+        if (signal?.aborted) {
           return;
         }
-        throw error; // Diğer hataları yeniden fırlatıyoruz
+        throw error;
       }
     }
   } catch (error) {
-    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
-      // Abort edildiğinde sessizce çıkıyoruz
+    if (signal?.aborted) {
       return;
     }
-    throw error; // Diğer hataları yeniden fırlatıyoruz
+    throw error;
   } finally {
-    // Her zaman reader'ı temizliyoruz
     if (reader) {
       try {
         await reader.cancel();

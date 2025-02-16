@@ -122,8 +122,12 @@ export function ChatInterface() {
       abortController1.current = new AbortController();
       abortController2.current = new AbortController();
 
-      // İlk modelin yanıtı için sonsuz döngü
       while (!isStopped && settings.data?.modelsConnected) {
+        // isStopped kontrolü eklendi
+        if (isStopped) {
+          return;
+        }
+
         // İlk model yanıtı
         const assistantMessage1 = {
           role: "assistant",
@@ -346,8 +350,10 @@ Görevlerin:
 
   const handleStop = () => {
     setIsStopped(true);
+    setIsStreaming(false);
+
     try {
-      // Her iki modelin abort controller'ını da sessizce sonlandır
+      // Her iki modelin abort controller'ını hemen sonlandır
       if (abortController1.current) {
         abortController1.current.abort();
         abortController1.current = undefined;
@@ -356,13 +362,20 @@ Görevlerin:
         abortController2.current.abort();
         abortController2.current = undefined;
       }
+
+      // Mevcut mesajı sonlandır
+      if (currentAssistantMessageId.current !== null) {
+        addMessage.mutate({
+          role: "assistant",
+          content: "Mesaj gönderimi durduruldu.",
+          id: currentAssistantMessageId.current,
+          modelId: settings.data?.selectedModel, //Using selectedModel as a fallback.  Could be improved.
+        });
+      }
+      currentAssistantMessageId.current = null;
     } catch (error) {
       // Abort sırasındaki hataları sessizce yönet
       console.debug("Error during abort:", error);
-    } finally {
-      // Stop sonrası state'i temizle
-      setIsStreaming(false);
-      currentAssistantMessageId.current = null;
     }
   };
 
