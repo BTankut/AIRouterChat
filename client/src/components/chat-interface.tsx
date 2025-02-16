@@ -85,7 +85,19 @@ export function ChatInterface() {
       return;
     }
 
-    const userMessage = { role: "user", content: input, modelId };
+    // Modele özel rol tanımı
+    const modelRole = modelNumber === 1 ? "İlk model" : "İkinci model";
+    const systemContext = `Sen ${modelRole} olarak görev yapıyorsun. ${
+      settings.data?.modelsConnected
+        ? "Diğer model ile işbirliği içinde çalışman gerekiyor. Diğer modelin yanıtlarını dikkate alarak kendi yanıtını oluştur."
+        : ""
+    }`;
+
+    const userMessage = { 
+      role: "user", 
+      content: input,
+      modelId 
+    };
     await addMessage.mutateAsync(userMessage);
     setInputs(prev => ({ ...prev, [`model${modelNumber}`]: "" }));
 
@@ -108,7 +120,11 @@ export function ChatInterface() {
       try {
         for await (const chunk of streamChat(
           modelId,
-          [...currentMessages, userMessage],
+          [
+            { role: "system", content: systemContext },
+            ...currentMessages,
+            userMessage
+          ],
           abortController1.current.signal
         )) {
           if (isStopped) {
@@ -150,11 +166,17 @@ export function ChatInterface() {
 
             let streamContent2 = "";
             try {
-              // İkinci modele gönderirken tüm mesaj geçmişini ve ilk modelin yanıtını da gönderelim
+              // İkinci model için context oluşturuyoruz
+              const otherModelRole = modelNumber === 1 ? "İkinci model" : "İlk model";
+              const otherModelContext = `Sen ${otherModelRole} olarak görev yapıyorsun. Diğer model şu yanıtı verdi: "${streamContent}". 
+                Bu yanıtı dikkate alarak ve bağlamı koruyarak kendi yanıtını oluştur. Eğer bir sayı dizisi veya sıralı bir işlem varsa, 
+                devam ettirmeye çalış. Eğer bir sohbet varsa, konuşmayı anlamlı şekilde sürdür.`;
+
               const messagesForSecondModel = [
+                { role: "system", content: otherModelContext },
                 ...currentMessages,
                 userMessage,
-                firstModelResponse, // İlk modelin yanıtını ekledik
+                firstModelResponse,
               ];
 
               for await (const chunk of streamChat(

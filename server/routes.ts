@@ -33,6 +33,8 @@ async function* streamChat(
       model,
       messages,
       stream: true,
+      temperature: 0.7, // Yaratıcılığı artırmak için
+      max_tokens: 1000, // Daha uzun yanıtlar için
     }),
   });
 
