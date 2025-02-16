@@ -64,9 +64,7 @@ export async function* streamChat(
         try {
           const parsed = JSON.parse(data);
           const content = parsed.choices[0]?.delta?.content || "";
-          // Satır atlama karakterlerini boşlukla değiştir
-          const cleanContent = content.replace(/\n/g, " ");
-          if (cleanContent) yield cleanContent;
+          if (content) yield content;
         } catch (e) {
           console.error("Failed to parse chunk:", e);
         }

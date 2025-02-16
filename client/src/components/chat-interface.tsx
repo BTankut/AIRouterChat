@@ -73,15 +73,15 @@ export function ChatInterface() {
       setIsStreaming(true);
       abortController.current = new AbortController();
 
-      // Add initial assistant message
-      await addMessage.mutateAsync({
+      const assistantMessage = {
         role: "assistant",
         content: "",
-      });
+      };
 
-      let streamContent = "";
+      await addMessage.mutateAsync(assistantMessage);
       const currentMessages = messages.data || [];
 
+      let streamContent = "";
       for await (const chunk of streamChat(
         settings.data.apiKey,
         settings.data.selectedModel,
@@ -89,7 +89,7 @@ export function ChatInterface() {
         abortController.current.signal
       )) {
         streamContent += chunk;
-        // Update the last message (assistant's message)
+        // Var olan asistan mesajını güncelle
         await addMessage.mutateAsync({
           role: "assistant",
           content: streamContent,
@@ -150,6 +150,7 @@ export function ChatInterface() {
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted"
                   }`}
+                  style={{ whiteSpace: 'pre-wrap' }}
                 >
                   {message.content}
                 </div>
