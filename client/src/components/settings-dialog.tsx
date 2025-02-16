@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,8 +51,8 @@ export function SettingsDialog() {
     },
   });
 
-  // Initialize form with existing settings
-  useState(() => {
+  // Form verilerini mevcut ayarlarla doldur
+  useEffect(() => {
     if (settings.data) {
       setApiKey(settings.data.apiKey);
       setSelectedModel(settings.data.selectedModel);
@@ -93,7 +93,7 @@ export function SettingsDialog() {
                 value={apiKey}
                 onChange={(e) => {
                   setApiKey(e.target.value);
-                  setSelectedModel(""); // Reset model selection when API key changes
+                  setSelectedModel(""); // API anahtarı değiştiğinde model seçimini sıfırla
                 }}
                 type="password"
                 placeholder="Enter your API key"
@@ -113,7 +113,7 @@ export function SettingsDialog() {
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
               <SelectContent>
-                {models.data?.map((model: OpenRouterModel) => (
+                {models.data?.map((model) => (
                   <SelectItem key={model.id} value={model.id}>
                     <div className="flex flex-col">
                       <span>{model.name}</span>
@@ -132,7 +132,7 @@ export function SettingsDialog() {
           <Button 
             type="submit" 
             className="w-full" 
-            disabled={updateSettings.isPending || !apiKey || (!selectedModel && models.data?.length > 0)}
+            disabled={updateSettings.isPending || !apiKey || (!selectedModel && models.data && models.data.length > 0)}
           >
             {updateSettings.isPending ? "Saving..." : "Save Changes"}
           </Button>
