@@ -133,6 +133,9 @@ export function ChatInterface() {
           }
         }
 
+        // İlk modelin yanıtını mesaj geçmişine ekleyelim
+        const firstModelResponse = { role: "assistant", content: streamContent, modelId };
+
         if (!isStopped && settings.data?.modelsConnected) {
           const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
           if (otherModelId) {
@@ -147,9 +150,16 @@ export function ChatInterface() {
 
             let streamContent2 = "";
             try {
+              // İkinci modele gönderirken tüm mesaj geçmişini ve ilk modelin yanıtını da gönderelim
+              const messagesForSecondModel = [
+                ...currentMessages,
+                userMessage,
+                firstModelResponse, // İlk modelin yanıtını ekledik
+              ];
+
               for await (const chunk of streamChat(
                 otherModelId,
-                [...currentMessages, userMessage, { role: "assistant", content: streamContent, modelId }],
+                messagesForSecondModel,
                 abortController2.current.signal
               )) {
                 if (isStopped) {
@@ -174,7 +184,6 @@ export function ChatInterface() {
                 }
               }
             } catch (error) {
-              // Silently handle AbortError
               if (error instanceof Error && error.name !== "AbortError" && currentAssistantMessageId.current !== null) {
                 await addMessage.mutateAsync({
                   role: "assistant",
@@ -187,7 +196,6 @@ export function ChatInterface() {
           }
         }
       } catch (error) {
-        // Silently handle AbortError
         if (error instanceof Error && error.name !== "AbortError" && currentAssistantMessageId.current !== null) {
           await addMessage.mutateAsync({
             role: "assistant",
