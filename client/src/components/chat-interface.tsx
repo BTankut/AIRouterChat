@@ -106,10 +106,10 @@ export function ChatInterface() {
            6. Her yanıt bir sonraki yanıt için zemin hazırlamalı`
         : ""}`;
 
-    const userMessage = { 
-      role: "user", 
+    const userMessage = {
+      role: "user",
       content: input,
-      modelId 
+      modelId
     };
     await addMessage.mutateAsync(userMessage);
     setInputs(prev => ({ ...prev, [`model${modelNumber}`]: "" }));
@@ -187,25 +187,28 @@ export function ChatInterface() {
               const otherModelRole = modelNumber === 1 ? "İkinci model" : "İlk model";
               const otherModelContext = `Sen ${otherModelRole} olarak görev yapıyorsun. 
 
-              Önceki yanıt: "${streamContent1}"
+Önceki yanıt: "${streamContent1}"
 
-              Görevlerin:
-              1. Yukarıdaki yanıtı dikkatlice analiz et
-              2. Bağlamı koruyarak kendi yanıtını oluştur
-              3. Her yanıtında mutlaka bir soru sor veya yorum yap
-              4. Konuşmayı asla sonlandırma
-              5. Diğer modelin sorusunu mutlaka yanıtla
-              6. Konuşmanın doğal akışını koru
-              7. Her yanıt bir sonraki yanıt için zemin hazırlamalı`;
+Görevlerin:
+1. Yukarıdaki yanıtı dikkatlice analiz et
+2. Bağlamı koruyarak kendi yanıtını oluştur
+3. Her yanıtında mutlaka bir soru sor veya yorum yap
+4. Konuşmayı asla sonlandırma
+5. Diğer modelin sorusunu mutlaka yanıtla
+6. Konuşmanın doğal akışını koru
+7. Her yanıt bir sonraki yanıt için zemin hazırlamalı
+
+ÖNEMLİ: Yanıtın boş olamaz ve en az bir cümle içermelidir.`;
 
               const messagesForSecondModel = [
                 { role: "system", content: otherModelContext },
                 ...currentMessages.slice(-10),
-                userMessage,
-                { role: "assistant", content: streamContent1, modelId }
+                { role: "assistant", content: streamContent1, modelId },
+                { role: "user", content: streamContent1 } // İlk modelin yanıtını kullanıcı mesajı olarak ekle
               ];
 
               let hasResponse = false;
+              let isValidResponse = false;
 
               for await (const chunk of streamChat(
                 otherModelId,
@@ -223,8 +226,18 @@ export function ChatInterface() {
                   }
                   return;
                 }
+
+                // Boş chunk kontrolü
+                if (!chunk || chunk.trim() === "") continue;
+
                 streamContent2 += chunk;
                 hasResponse = true;
+
+                // Yanıt uzunluğu kontrolü
+                if (streamContent2.trim().length > 0) {
+                  isValidResponse = true;
+                }
+
                 if (currentAssistantMessageId.current !== null) {
                   await addMessage.mutateAsync({
                     role: "assistant",
@@ -235,8 +248,28 @@ export function ChatInterface() {
                 }
               }
 
-              if (hasResponse) {
-                // Yeni bir tur başlatmak için kullanıcı mesajını güncelle
+              // Geçerli yanıt kontrolü
+              if (!isValidResponse) {
+                retryCount++;
+                if (retryCount < maxRetries) {
+                  await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+                  streamContent2 = "";
+                  continue;
+                } else {
+                  if (currentAssistantMessageId.current !== null) {
+                    await addMessage.mutateAsync({
+                      role: "assistant",
+                      content: "Üzgünüm, geçerli bir yanıt oluşturulamadı. Lütfen tekrar deneyin.",
+                      id: currentAssistantMessageId.current,
+                      modelId: otherModelId,
+                    });
+                  }
+                  break;
+                }
+              }
+
+              // Yeni bir tur başlatmak için kullanıcı mesajını güncelle
+              if (isValidResponse) {
                 userMessage.content = streamContent2;
                 break;
               }
