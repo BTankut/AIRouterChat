@@ -22,6 +22,9 @@ async function* streamChat(
   model: string,
   messages: { role: string; content: string }[],
 ) {
+  console.log("Streaming chat with model:", model);
+  console.log("Messages:", messages);
+
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -38,8 +41,12 @@ async function* streamChat(
     }),
   });
 
+  console.log("OpenRouter API Response Status:", response.status);
+  
   if (!response.ok) {
-    throw new Error("Failed to generate response");
+    const errorText = await response.text();
+    console.error("OpenRouter API Error:", errorText);
+    throw new Error(`Failed to generate response: ${errorText}`);
   }
 
   const reader = response.body?.getReader();
@@ -110,6 +117,40 @@ export async function registerRoutes(app: Express) {
       res.json(models);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/test-openrouter", async (req, res) => {
+    try {
+      console.log("Testing OpenRouter API connection...");
+      console.log("API Key:", process.env.OPENROUTER_API_KEY);
+      
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "HTTP-Referer": "http://localhost:5000",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-pro",
+          messages: [{ role: "user", content: "Merhaba" }],
+          stream: false
+        }),
+      });
+
+      console.log("Response status:", response.status);
+      const data = await response.text();
+      console.log("Response data:", data);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} - ${data}`);
+      }
+
+      res.json({ status: "success", data });
+    } catch (error) {
+      console.error("Test failed:", error);
+      res.status(500).json({ status: "error", error: error.message });
     }
   });
 
