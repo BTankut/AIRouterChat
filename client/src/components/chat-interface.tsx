@@ -21,6 +21,7 @@ export function ChatInterface() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const currentAssistantMessageId = useRef<number | null>(null);
+  const isStoppedRef = useRef(false);
 
   const settings = useQuery<Settings>({
     queryKey: ["/api/settings"],
@@ -75,6 +76,7 @@ export function ChatInterface() {
     if (!input.trim()) return;
 
     setIsStopped(false);
+    isStoppedRef.current = false;
     setIsStreaming(true);
     currentAssistantMessageId.current = null;
 
@@ -115,7 +117,7 @@ export function ChatInterface() {
       abortController1.current = new AbortController();
       abortController2.current = new AbortController();
 
-      while (!isStopped) {
+      while (!isStoppedRef.current) {
         // Model 1'in yanıtı
         const model1Message = {
           role: "assistant",
@@ -139,7 +141,7 @@ export function ChatInterface() {
             ],
             abortController1.current?.signal
           )) {
-            if (isStopped) {
+            if (isStoppedRef.current) {
               await addMessage.mutateAsync({
                 role: "assistant",
                 content: "Mesaj gönderimi durduruldu.",
@@ -158,7 +160,7 @@ export function ChatInterface() {
             });
           }
 
-          if (isStopped) return;
+          if (isStoppedRef.current) return;
 
           // Model 2'nin yanıtı
           const model2Message = {
@@ -197,7 +199,7 @@ Görevlerin:
               ],
               abortController2.current?.signal
             )) {
-              if (isStopped) {
+              if (isStoppedRef.current) {
                 await addMessage.mutateAsync({
                   role: "assistant",
                   content: "Mesaj gönderimi durduruldu.",
@@ -216,31 +218,31 @@ Görevlerin:
               });
             }
 
-            if (isStopped) return;
+            if (isStoppedRef.current) return;
 
             // Yeni tur için kullanıcı mesajını güncelle
             userMessage.content = model2Content;
 
             // Kısa bir bekleme süresi
-            if (!isStopped) {
+            if (!isStoppedRef.current) {
               await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
           } catch (error) {
-            if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+            if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
               return;
             }
             throw error;
           }
         } catch (error) {
-          if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+          if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
             return;
           }
           throw error;
         }
       }
     } catch (error) {
-      if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+      if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
         return;
       }
       if (error instanceof Error) {
@@ -253,6 +255,7 @@ Görevlerin:
     } finally {
       setIsStreaming(false);
       setIsStopped(false);
+      isStoppedRef.current = false;
       currentAssistantMessageId.current = null;
       abortController1.current = undefined;
       abortController2.current = undefined;
@@ -265,6 +268,7 @@ Görevlerin:
 
     // Reset state
     setIsStopped(false);
+    isStoppedRef.current = false;
     setIsStreaming(true);
     currentAssistantMessageId.current = null;
 
@@ -325,7 +329,7 @@ Görevlerin:
             ],
             abortController1.current?.signal
           )) {
-            if (isStopped) {
+            if (isStoppedRef.current) {
               if (currentAssistantMessageId.current !== null) {
                 await addMessage.mutateAsync({
                   role: "assistant",
@@ -348,7 +352,7 @@ Görevlerin:
             }
           }
         } catch (error) {
-          if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+          if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
             return;
           }
           if (currentAssistantMessageId.current !== null) {
@@ -363,8 +367,8 @@ Görevlerin:
       } 
       // Bağlı modlar için mesaj gönderme
       else {
-        while (!isStopped && settings.data?.modelsConnected) {
-          if (isStopped) break;
+        while (!isStoppedRef.current && settings.data?.modelsConnected) {
+          if (isStoppedRef.current) break;
 
           const assistantMessage1 = {
             role: "assistant",
@@ -388,7 +392,7 @@ Görevlerin:
               ],
               abortController1.current?.signal
             )) {
-              if (isStopped) {
+              if (isStoppedRef.current) {
                 if (currentAssistantMessageId.current !== null) {
                   await addMessage.mutateAsync({
                     role: "assistant",
@@ -411,7 +415,7 @@ Görevlerin:
               }
             }
 
-            if (isStopped) return;
+            if (isStoppedRef.current) return;
 
             // İkinci model için hazırlık
             const otherModelId = modelNumber === 1 ? settings.data.secondSelectedModel : settings.data.selectedModel;
@@ -430,7 +434,7 @@ Görevlerin:
             let retryCount = 0;
             const maxRetries = 3;
 
-            while (retryCount < maxRetries && !isStopped) {
+            while (retryCount < maxRetries && !isStoppedRef.current) {
               try {
                 const otherModelRole = modelNumber === 1 ? "İkinci model" : "İlk model";
                 const otherModelContext = `Sen ${otherModelRole} olarak görev yapıyorsun. 
@@ -463,7 +467,7 @@ Görevlerin:
                   messagesForSecondModel,
                   abortController2.current?.signal
                 )) {
-                  if (isStopped) {
+                  if (isStoppedRef.current) {
                     if (currentAssistantMessageId.current !== null) {
                       await addMessage.mutateAsync({
                         role: "assistant",
@@ -523,7 +527,7 @@ Görevlerin:
                 }
 
               } catch (error) {
-                if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+                if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
                   return;
                 }
 
@@ -544,12 +548,12 @@ Görevlerin:
             }
 
             // Kısa bir bekleme süresi ekleyelim
-            if (!isStopped) {
+            if (!isStoppedRef.current) {
               await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
           } catch (error) {
-            if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+            if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
               return;
             }
             if (currentAssistantMessageId.current !== null) {
@@ -565,7 +569,7 @@ Görevlerin:
         }
       }
     } catch (error) {
-      if (isStopped || (error instanceof Error && error.name === "AbortError")) {
+      if (isStoppedRef.current || (error instanceof Error && error.name === "AbortError")) {
         return;
       }
       if (error instanceof Error) {
@@ -578,6 +582,7 @@ Görevlerin:
     } finally {
       setIsStreaming(false);
       setIsStopped(false);
+      isStoppedRef.current = false;
       currentAssistantMessageId.current = null;
       abortController1.current = undefined;
       abortController2.current = undefined;
@@ -586,6 +591,7 @@ Görevlerin:
 
   const handleStop = () => {
     setIsStopped(true);
+    isStoppedRef.current = true;
     setIsStreaming(false);
 
     // Önce mevcut mesajı sonlandır
